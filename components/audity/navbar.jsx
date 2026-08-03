@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Bell, Building2, Search, User, ChevronDown, LogOut } from 'lucide-react'
 import { useAudity } from '@/context/audity-context'
 import { MicroLabel, Pill } from './ui-kit'
@@ -11,13 +11,30 @@ import { useRouter } from 'next/navigation'
 export function Navbar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const router = useRouter()
-  const handleLogout = () => {
-  logout()
-  router.replace("/login")
-}
-  const { globalQuery, setGlobalQuery, activeEvents, myTickets,authUser,logout } = useAudity()
+  const { globalQuery, setGlobalQuery, activeEvents, myTickets, authUser, logout } = useAudity()
   const [searchFocused, setSearchFocused] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
+  const actionsRef = useRef(null)
+
+  const handleLogout = () => {
+    logout()
+    router.replace('/login')
+  }
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (actionsRef.current && !actionsRef.current.contains(e.target)) {
+        setUserMenuOpen(false)
+        setNotifOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('touchstart', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('touchstart', handleClickOutside)
+    }
+  }, [])
 
   const notifications = [
     { id: 'n1', label: 'HALL RENTAL', text: `${activeEvents.length} events currently published across the complex.` },
@@ -28,9 +45,9 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
       <div className="mx-auto flex max-w-[1600px] flex-col gap-3 px-4 py-3 lg:px-6">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 sm:flex-nowrap sm:justify-start">
           {/* wordmark */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex shrink-0 items-center gap-2.5">
             <div className="grid h-8 w-8 place-items-center bg-primary">
               <Building2 className="h-4 w-4 text-primary-foreground" strokeWidth={2.25} />
             </div>
@@ -41,7 +58,7 @@ export function Navbar() {
           </div>
 
           {/* search */}
-          <div className="relative ml-auto w-full max-w-md lg:ml-6 lg:mr-auto">
+          <div className="relative order-3 w-full sm:order-none sm:ml-auto sm:w-auto sm:max-w-md sm:flex-1 lg:ml-6 lg:mr-auto">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
               value={globalQuery}
@@ -56,10 +73,13 @@ export function Navbar() {
           </div>
 
           {/* actions */}
-          <div className="relative flex items-center gap-2">
+          <div ref={actionsRef} className="relative flex shrink-0 items-center gap-2 sm:ml-0">
             <button
               type="button"
-              onClick={() => setNotifOpen((v) => !v)}
+              onClick={() => {
+                setNotifOpen((v) => !v)
+                if (!notifOpen) setUserMenuOpen(false)
+              }}
               aria-label="Notifications"
               className="relative cursor-pointer border border-border p-2 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
             >
@@ -67,7 +87,7 @@ export function Navbar() {
               <span className="absolute -right-1 -top-1 h-2 w-2 bg-secondary" />
             </button>
             {notifOpen && (
-              <div className="absolute right-0 top-11 z-50 w-72 border border-border-strong bg-surface">
+              <div className="absolute right-0 top-11 z-50 w-72 max-w-[calc(100vw-2rem)] border border-border-strong bg-surface">
                 <div className="border-b border-border px-3 py-2">
                   <MicroLabel className="text-foreground">Notifications</MicroLabel>
                 </div>
@@ -81,45 +101,49 @@ export function Navbar() {
                 </ul>
               </div>
             )}
-            <div className="relative hidden sm:block">
-  <button
-    type="button"
-    onClick={() => setUserMenuOpen((open) => !open)}
-    className="flex items-center gap-2 border border-border px-3 py-2 transition-colors hover:border-primary/50"
-  >
-    <User
-      className="h-4 w-4 text-primary"
-      strokeWidth={1.75}
-    />
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setUserMenuOpen((open) => !open)
+                  if (!userMenuOpen) setNotifOpen(false)
+                }}
+                aria-label="User account menu"
+                className="flex items-center gap-1.5 border border-border px-2 py-2 transition-colors hover:border-primary/50 sm:gap-2 sm:px-3"
+              >
+                <User
+                  className="h-4 w-4 shrink-0 text-primary"
+                  strokeWidth={1.75}
+                />
 
-    <MicroLabel className="text-foreground">
-      {authUser?.name || "User"}
-    </MicroLabel>
+                <MicroLabel className="hidden max-w-[100px] truncate text-foreground sm:block md:max-w-[160px]">
+                  {authUser?.name || "User"}
+                </MicroLabel>
 
-    <ChevronDown
-      className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${
-        userMenuOpen ? "rotate-180" : ""
-      }`}
-      strokeWidth={1.75}
-    />
-  </button>
+                <ChevronDown
+                  className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${
+                    userMenuOpen ? "rotate-180" : ""
+                  }`}
+                  strokeWidth={1.75}
+                />
+              </button>
 
-  {userMenuOpen && (
-    <div className="absolute right-0 top-full z-50 mt-2 min-w-[160px] border border-border bg-background p-1 shadow-lg">
-      <button
-        type="button"
-        onClick={handleLogout}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <LogOut
-          className="h-4 w-4 text-primary"
-          strokeWidth={1.75}
-        />
-        Logout
-      </button>
-    </div>
-  )}
-</div>
+              {userMenuOpen && (
+                <div className="absolute right-0 top-full z-50 mt-2 min-w-[160px] border border-border bg-background p-1 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <LogOut
+                      className="h-4 w-4 shrink-0 text-primary"
+                      strokeWidth={1.75}
+                    />
+                    Logout
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
