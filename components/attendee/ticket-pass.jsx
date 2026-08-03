@@ -7,13 +7,9 @@ import { Button, MicroLabel, PixelDivider, Pill, formatDate, formatINR } from '@
 export function TicketPass({ ticket, event }) {
   if (!ticket || !event) return null
 
-  const payload = JSON.stringify({
-    t: ticket.id,
-    e: event.id,
-    h: event.hallCode,
-    g: event.entranceGate,
-    q: ticket.quantity,
-  })
+  // Opaque ticket identifier expected by the authoritative backend check-in API
+  // Contains zero sensitive data (no JWT, emails, payments, or MongoDB specifics)
+  const payload = ticket.customId || ticket.id
 
   const statusTone =
     ticket.status === 'CANCELLED' ? 'danger' : ticket.checkedIn ? 'primary' : 'success'
