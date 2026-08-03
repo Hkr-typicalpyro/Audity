@@ -19,11 +19,11 @@ export function QrScannerModal({ open, onClose }) {
     }
     setBusy(true)
     setResult(null)
-    setTimeout(() => {
-      const res = checkInTicket(ticketId)
+    setTimeout(async () => {
+      const res = await checkInTicket(ticketId)
       setResult(res)
       setBusy(false)
-      if (res.ok) setTicketId('')
+      if (res?.ok) setTicketId('')
     }, 850)
   }
 

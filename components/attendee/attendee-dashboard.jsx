@@ -22,14 +22,15 @@ import { MyTickets } from './my-tickets'
 import { cn } from '@/lib/utils'
 
 export function AttendeeDashboard() {
-  const { events, halls, ticketSalesEnabled, myTickets, globalQuery } = useAudity()
+  const { events, halls, ticketSalesEnabled, myTickets, globalQuery, applyForOrganiser, authUser } = useAudity()
 
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('ALL')
   const [hall, setHall] = useState('ALL')
   const [date, setDate] = useState('')
   const [bookingEvent, setBookingEvent] = useState(null)
-
+  const [applyingOrganiser, setApplyingOrganiser] = useState(false)
+  const [organiserError, setOrganiserError] = useState('')
   const effectiveQuery = (query || globalQuery).trim().toLowerCase()
 
   const filtered = useMemo(() => {
@@ -50,7 +51,18 @@ export function AttendeeDashboard() {
   const seats = activeTickets.reduce((s, t) => s + t.quantity, 0)
 
   const filtersDirty = query || category !== 'ALL' || hall !== 'ALL' || date
+  const handleOrganiserApplication = async () => {
+    setOrganiserError('')
+    setApplyingOrganiser(true)
 
+    try {
+      await applyForOrganiser()
+    } catch (err) {
+      setOrganiserError(err.message || 'Unable to submit organiser application')
+    } finally {
+      setApplyingOrganiser(false)
+    }
+}
   return (
     <div className="space-y-12">
       <section>
@@ -185,7 +197,80 @@ export function AttendeeDashboard() {
         />
         <MyTickets />
       </section>
+      <section>
+  <SectionHeading
+    index="03 /"
+    title="Organise with Audity"
+    description="Apply for organiser access to publish events, reserve halls and manage attendees through the Audity complex."
+  />
 
+  <Panel label="Organiser access">
+    <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:justify-between">
+      <div>
+        <MicroLabel className="mb-2 block">
+          Application status
+        </MicroLabel>
+
+        {authUser?.organiserStatus === 'pending' ? (
+          <>
+            <p className="font-mono text-sm font-semibold uppercase tracking-[0.12em] text-amber-400">
+              Pending review
+            </p>
+            <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+              Your organiser application has been submitted and is waiting
+              for approval from an Audity owner.
+            </p>
+          </>
+        ) : authUser?.organiserStatus === 'rejected' ? (
+          <>
+            <p className="font-mono text-sm font-semibold uppercase tracking-[0.12em] text-destructive">
+              Application rejected
+            </p>
+            <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+              Your previous application was not approved. You can submit
+              another application for review.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="font-mono text-sm font-semibold uppercase tracking-[0.12em] text-foreground">
+              Attendee access
+            </p>
+            <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+              Become an organiser to create events, reserve halls and manage
+              event attendees.
+            </p>
+          </>
+        )}
+
+        {organiserError && (
+          <p className="mt-3 text-sm text-destructive">
+            {organiserError}
+          </p>
+        )}
+      </div>
+
+      <div className="shrink-0">
+        {authUser?.organiserStatus === 'pending' ? (
+          <Button variant="outline" disabled>
+            Application pending
+          </Button>
+        ) : (
+          <Button
+            onClick={handleOrganiserApplication}
+            disabled={applyingOrganiser}
+          >
+            {applyingOrganiser
+              ? 'Submitting...'
+              : authUser?.organiserStatus === 'rejected'
+                ? 'Apply again'
+                : 'Apply to organise'}
+          </Button>
+        )}
+      </div>
+    </div>
+  </Panel>
+</section>
       <BookingDrawer
         event={bookingEvent}
         open={Boolean(bookingEvent)}

@@ -37,9 +37,16 @@ export function HallBooking() {
   const { halls, slots, inspectSlot, rentHallAndPublish, hallRentalEnabled } = useAudity()
 
   const [date, setDate] = useState(tomorrowISO())
-  const [hallId, setHallId] = useState('hall-a')
+  const [hallId, setHallId] = useState(() => halls[0]?.id || '')
   const [slotId, setSlotId] = useState('morning')
   const [scanning, setScanning] = useState(false)
+
+  // Sync hallId when MongoDB halls load asynchronously and replace initial mock IDs
+  useEffect(() => {
+    if (!halls.some((h) => h.id === hallId) && halls.length > 0) {
+      setHallId(halls[0].id)
+    }
+  }, [halls, hallId])
 
   const [form, setForm] = useState({
     title: '',
@@ -69,43 +76,52 @@ export function HallBooking() {
   const gst = Math.round((rentalFee + serviceCharge) * 0.18)
   const total = rentalFee + serviceCharge + gst
 
-  const available = inspection.state === 'AVAILABLE' && hallRentalEnabled
+  const available = Boolean(hall) && Boolean(slot) && inspection.state === 'AVAILABLE' && hallRentalEnabled
   const capacityValue = useMemo(
     () => Number(form.capacity || hall?.capacity || 0),
     [form.capacity, hall],
   )
 
   function openCheckout() {
+    if (!hall) return setErrors('SELECT A VALID HALL TO PROCEED')
+    if (!slot) return setErrors('SELECT A VALID TIME SLOT TO PROCEED')
     if (!form.title.trim()) return setErrors('EVENT NAME IS REQUIRED')
     if (!form.description.trim()) return setErrors('DESCRIPTION IS REQUIRED')
     if (capacityValue <= 0) return setErrors('EXPECTED CAPACITY MUST BE ABOVE ZERO')
-    if (capacityValue > (hall?.capacity || 0)) return setErrors(`CAPACITY EXCEEDS ${hall.code} LIMIT (${hall.capacity})`)
+    if (capacityValue > hall.capacity) return setErrors(`CAPACITY EXCEEDS ${hall.code || 'HALL'} LIMIT (${hall.capacity})`)
     setErrors('')
     setPhase('idle')
     setCheckoutOpen(true)
   }
 
   function confirmRental() {
+    if (!hall || !slot) return
     setPhase('processing')
-    setTimeout(() => {
-      rentHallAndPublish({
-        hallId,
-        date,
-        slotId,
-        title: form.title.trim(),
-        description: form.description.trim(),
-        category: form.category,
-        ticketPrice: Number(form.ticketPrice || 0),
-        capacity: capacityValue,
-        method: method.toUpperCase(),
-        total,
-      })
-      setPhase('done')
-      setTimeout(() => {
-        setCheckoutOpen(false)
-        setForm({ title: '', description: '', category: 'TECH', ticketPrice: '999', capacity: '' })
-      }, 900)
-    }, 1500)
+    const payload = {
+      hallId,
+      date,
+      slotId,
+      title: form.title.trim(),
+      description: form.description.trim(),
+      category: form.category,
+      ticketPrice: Number(form.ticketPrice || 0),
+      capacity: capacityValue,
+      method: method.toUpperCase(),
+      total,
+    }
+    rentHallAndPublish(payload).then((result) => {
+      if (result) {
+        setPhase('done')
+        setTimeout(() => {
+          setCheckoutOpen(false)
+          setForm({ title: '', description: '', category: 'TECH', ticketPrice: '999', capacity: '' })
+        }, 900)
+      } else {
+        setPhase('idle')
+      }
+    }).catch(() => {
+      setPhase('idle')
+    })
   }
 
   return (

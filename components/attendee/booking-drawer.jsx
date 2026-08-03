@@ -93,10 +93,15 @@ export function BookingDrawer({ event, open, onClose }) {
     }
     setError('')
     setPhase('processing')
-    setTimeout(() => {
-      const ticket = bookTickets({ eventId: live.id, quantity, method: METHOD_LABEL[method] })
-      setIssued(ticket)
-      setPhase('done')
+    setTimeout(async () => {
+      const ticket = await bookTickets({ eventId: live.id, quantity, method: METHOD_LABEL[method] })
+      if (ticket) {
+        setIssued(ticket)
+        setPhase('done')
+      } else {
+        setPhase('form')
+        setError('BOOKING FAILED OR SOLD OUT')
+      }
     }, 1500)
   }
 

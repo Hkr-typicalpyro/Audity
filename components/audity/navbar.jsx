@@ -1,15 +1,21 @@
 'use client'
 
 import { useState } from 'react'
-import { Bell, Building2, Search, User } from 'lucide-react'
+import { Bell, Building2, Search, User, ChevronDown, LogOut } from 'lucide-react'
 import { useAudity } from '@/context/audity-context'
 import { MicroLabel, Pill } from './ui-kit'
-import { RoleSwitcher } from './role-switcher'
 import { PortalStatus } from './portal-status'
 import { GlobalSearchResults } from './global-search'
+import { useRouter } from 'next/navigation'
 
 export function Navbar() {
-  const { globalQuery, setGlobalQuery, activeEvents, myTickets } = useAudity()
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const router = useRouter()
+  const handleLogout = () => {
+  logout()
+  router.replace("/login")
+}
+  const { globalQuery, setGlobalQuery, activeEvents, myTickets,authUser,logout } = useAudity()
   const [searchFocused, setSearchFocused] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
 
@@ -75,15 +81,49 @@ export function Navbar() {
                 </ul>
               </div>
             )}
-            <div className="hidden items-center gap-2 border border-border px-3 py-2 sm:flex">
-              <User className="h-4 w-4 text-primary" strokeWidth={1.75} />
-              <MicroLabel className="text-foreground">A. RAO</MicroLabel>
-            </div>
+            <div className="relative hidden sm:block">
+  <button
+    type="button"
+    onClick={() => setUserMenuOpen((open) => !open)}
+    className="flex items-center gap-2 border border-border px-3 py-2 transition-colors hover:border-primary/50"
+  >
+    <User
+      className="h-4 w-4 text-primary"
+      strokeWidth={1.75}
+    />
+
+    <MicroLabel className="text-foreground">
+      {authUser?.name || "User"}
+    </MicroLabel>
+
+    <ChevronDown
+      className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${
+        userMenuOpen ? "rotate-180" : ""
+      }`}
+      strokeWidth={1.75}
+    />
+  </button>
+
+  {userMenuOpen && (
+    <div className="absolute right-0 top-full z-50 mt-2 min-w-[160px] border border-border bg-background p-1 shadow-lg">
+      <button
+        type="button"
+        onClick={handleLogout}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <LogOut
+          className="h-4 w-4 text-primary"
+          strokeWidth={1.75}
+        />
+        Logout
+      </button>
+    </div>
+  )}
+</div>
           </div>
         </div>
 
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <RoleSwitcher />
           <PortalStatus />
         </div>
       </div>

@@ -1,7 +1,17 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { CalendarOff, DoorOpen, Layers, Trash2, Wrench } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  CalendarOff,
+  DoorOpen,
+  Edit3,
+  Layers,
+  Plus,
+  Power,
+  PowerOff,
+  Trash2,
+  Wrench,
+} from 'lucide-react'
 import { useAudity } from '@/context/audity-context'
 import { BLACKOUT_REASONS } from '@/data/mock-data'
 import {
@@ -26,31 +36,63 @@ const statusTone = {
   'BLACKED OUT': 'danger',
 }
 
-export function HallManager() {
-  const { halls, slots, blackouts, addBlackout, removeBlackout, hallStatus, pushToast } = useAudity()
+// ─── Empty hall form ──────────────────────────────────────────────────────────
 
-  const [open, setOpen] = useState(false)
-  const [form, setForm] = useState({
-    hallId: halls[0].id,
+const EMPTY_HALL_FORM = {
+  code: '',
+  name: '',
+  floor: '',
+  entranceGate: '',
+  capacity: '',
+  rentalFee: '',
+}
+
+export function HallManager() {
+  const {
+    halls,
+    slots,
+    blackouts,
+    addBlackout,
+    removeBlackout,
+    hallStatus,
+    pushToast,
+    createHall,
+    updateHall,
+    setHallActive,
+  } = useAudity()
+
+  // ─── Blackout form ──────────────────────────────────────────────────────────
+  const [blackoutOpen, setBlackoutOpen] = useState(false)
+  const [blackoutForm, setBlackoutForm] = useState({
+    hallId: halls[0]?.id || '',
     date: '',
-    slotId: slots[0].id,
+    slotId: slots[0]?.id || 'morning',
     reason: BLACKOUT_REASONS[0],
     note: '',
   })
 
+  useEffect(() => {
+    if (!halls.some((h) => h.id === blackoutForm.hallId) && halls.length > 0) {
+      setBlackoutForm((f) => ({ ...f, hallId: halls[0].id }))
+    }
+  }, [halls, blackoutForm.hallId])
+
   const today = new Date().toISOString().slice(0, 10)
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const setB = (k) => (e) => setBlackoutForm((f) => ({ ...f, [k]: e.target.value }))
 
   const duplicate = useMemo(
     () =>
       blackouts.some(
-        (b) => b.hallId === form.hallId && b.date === form.date && b.slotId === form.slotId,
+        (b) =>
+          b.hallId === blackoutForm.hallId &&
+          b.date === blackoutForm.date &&
+          b.slotId === blackoutForm.slotId,
       ),
-    [blackouts, form],
+    [blackouts, blackoutForm],
   )
 
-  const submit = () => {
-    if (!form.date) {
+  const submitBlackout = async () => {
+    if (!blackoutForm.date) {
       pushToast('SELECT A DATE TO BLOCK', 'error')
       return
     }
@@ -58,21 +100,157 @@ export function HallManager() {
       pushToast('SLOT ALREADY BLOCKED', 'error')
       return
     }
-    addBlackout(form)
-    setForm((f) => ({ ...f, date: '', note: '' }))
-    setOpen(false)
+    await addBlackout(blackoutForm)
+    setBlackoutForm((f) => ({ ...f, date: '', note: '' }))
+    setBlackoutOpen(false)
+  }
+
+  // ─── Create Hall modal ──────────────────────────────────────────────────────
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createForm, setCreateForm] = useState(EMPTY_HALL_FORM)
+  const [createError, setCreateError] = useState('')
+  const [createLoading, setCreateLoading] = useState(false)
+
+  const setC = (k) => (e) => setCreateForm((f) => ({ ...f, [k]: e.target.value }))
+
+  const submitCreate = async () => {
+    setCreateError('')
+    if (!createForm.code.trim()) return setCreateError('Hall code is required')
+    if (!createForm.name.trim()) return setCreateError('Hall name is required')
+    if (!createForm.floor.trim()) return setCreateError('Floor is required')
+    if (!createForm.entranceGate.trim()) return setCreateError('Entrance gate is required')
+    const cap = Number(createForm.capacity)
+    if (!cap || cap < 1) return setCreateError('Capacity must be at least 1')
+    const fee = Number(createForm.rentalFee)
+    if (isNaN(fee) || fee < 0) return setCreateError('Rental fee must be 0 or more')
+
+    setCreateLoading(true)
+    try {
+      await createHall({
+        code: createForm.code.trim().toUpperCase(),
+        name: createForm.name.trim(),
+        floor: createForm.floor.trim(),
+        entranceGate: createForm.entranceGate.trim(),
+        capacity: cap,
+        rentalFee: fee,
+      })
+      pushToast(`HALL ${createForm.code.toUpperCase()} CREATED`)
+      setCreateForm(EMPTY_HALL_FORM)
+      setCreateOpen(false)
+    } catch (err) {
+      setCreateError(err.message || 'Failed to create hall')
+    } finally {
+      setCreateLoading(false)
+    }
+  }
+
+  // ─── Edit Hall modal ────────────────────────────────────────────────────────
+  const [editTarget, setEditTarget] = useState(null)
+  const [editForm, setEditForm] = useState(EMPTY_HALL_FORM)
+  const [editError, setEditError] = useState('')
+  const [editLoading, setEditLoading] = useState(false)
+
+  const openEdit = (hall) => {
+    setEditTarget(hall)
+    setEditForm({
+      code: hall.code,
+      name: hall.hallName || hall.name,
+      floor: hall.floor,
+      entranceGate: hall.entranceGate,
+      capacity: String(hall.capacity),
+      rentalFee: String(hall.rentalFee),
+    })
+    setEditError('')
+  }
+
+  const setE = (k) => (e) => setEditForm((f) => ({ ...f, [k]: e.target.value }))
+
+  const submitEdit = async () => {
+    setEditError('')
+    if (!editForm.code.trim()) return setEditError('Hall code is required')
+    if (!editForm.name.trim()) return setEditError('Hall name is required')
+    if (!editForm.floor.trim()) return setEditError('Floor is required')
+    if (!editForm.entranceGate.trim()) return setEditError('Entrance gate is required')
+    const cap = Number(editForm.capacity)
+    if (!cap || cap < 1) return setEditError('Capacity must be at least 1')
+    const fee = Number(editForm.rentalFee)
+    if (isNaN(fee) || fee < 0) return setEditError('Rental fee must be 0 or more')
+
+    setEditLoading(true)
+    try {
+      // Use _id for the API call — never hall.id which may differ
+      const mongoId = editTarget._id || editTarget.id
+      await updateHall(mongoId, {
+        code: editForm.code.trim().toUpperCase(),
+        name: editForm.name.trim(),
+        floor: editForm.floor.trim(),
+        entranceGate: editForm.entranceGate.trim(),
+        capacity: cap,
+        rentalFee: fee,
+      })
+      pushToast(`HALL ${editForm.code.toUpperCase()} UPDATED`)
+      setEditTarget(null)
+    } catch (err) {
+      setEditError(err.message || 'Failed to update hall')
+    } finally {
+      setEditLoading(false)
+    }
+  }
+
+  // ─── Toggle active status ────────────────────────────────────────────────
+  const [statusLoading, setStatusLoading] = useState(null)
+
+  const toggleStatus = async (hall) => {
+    const mongoId = hall._id || hall.id
+    setStatusLoading(mongoId)
+    try {
+      await setHallActive(mongoId, !hall.isActive)
+      pushToast(
+        hall.isActive
+          ? `HALL ${hall.code} DISABLED`
+          : `HALL ${hall.code} RE-ENABLED`,
+        hall.isActive ? 'warning' : 'success',
+      )
+    } catch (err) {
+      pushToast(err.message || 'Failed to update hall status', 'error')
+    } finally {
+      setStatusLoading(null)
+    }
   }
 
   const sortedBlackouts = [...blackouts].sort((a, b) => (a.date < b.date ? -1 : 1))
 
   return (
     <div className="space-y-4">
+      {/* ─── Hall cards ─────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-3">
+        <MicroLabel>All halls</MicroLabel>
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Plus className="h-3.5 w-3.5" /> New hall
+        </Button>
+      </div>
+
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         {halls.map((h) => {
           const s = hallStatus(h.id)
+          const hallName = h.hallName || h.name
+          const disabled = h.isActive === false
           return (
-            <Panel key={h.id} label={h.code} right={<Pill tone={statusTone[s.status]} dot>{s.status}</Pill>}>
-              <h3 className="text-lg font-bold uppercase tracking-tight text-foreground">{h.name}</h3>
+            <Panel
+              key={h.id}
+              label={h.code}
+              right={
+                <div className="flex items-center gap-2">
+                  {disabled && <Pill tone="danger">Disabled</Pill>}
+                  <Pill tone={disabled ? 'neutral' : statusTone[s.status]} dot>
+                    {disabled ? 'INACTIVE' : s.status}
+                  </Pill>
+                </div>
+              }
+            >
+              <h3 className="text-lg font-bold uppercase tracking-tight text-foreground">
+                {hallName}
+              </h3>
               <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5">
                 <Meta icon={Layers} label="Floor" value={h.floor} />
                 <Meta icon={DoorOpen} label="Gate" value={h.entranceGate.replace('Entrance ', '')} />
@@ -103,15 +281,43 @@ export function HallManager() {
                       : 'No scheduled activity. Hall open for rental.'}
                 </p>
               </div>
+
+              {/* ─ Actions ─ */}
+              <div className="mt-4 flex gap-2 border-t border-border pt-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => openEdit(h)}
+                  className="flex-1"
+                >
+                  <Edit3 className="h-3.5 w-3.5" /> Edit
+                </Button>
+                <Button
+                  size="sm"
+                  variant={disabled ? 'outline' : 'ghost'}
+                  disabled={statusLoading === (h._id || h.id)}
+                  onClick={() => toggleStatus(h)}
+                >
+                  {disabled ? (
+                    <><Power className="h-3.5 w-3.5" /> Enable</>
+                  ) : (
+                    <><PowerOff className="h-3.5 w-3.5" /> Disable</>
+                  )}
+                </Button>
+              </div>
             </Panel>
           )
         })}
       </div>
 
+      {/* ─── Blackout register ───────────────────────────────────────────── */}
       <Panel
         label="Blackout register"
         right={
-          <Button size="sm" onClick={() => setOpen(true)}>
+          <Button size="sm" onClick={() => {
+            setBlackoutForm((f) => ({ ...f, hallId: halls[0]?.id || '' }))
+            setBlackoutOpen(true)
+          }}>
             <CalendarOff className="h-3.5 w-3.5" /> Block a slot
           </Button>
         }
@@ -162,9 +368,10 @@ export function HallManager() {
         )}
       </Panel>
 
+      {/* ─── Block slot modal ────────────────────────────────────────────── */}
       <Modal
-        open={open}
-        onClose={() => setOpen(false)}
+        open={blackoutOpen}
+        onClose={() => setBlackoutOpen(false)}
         title="Block hall slot"
         footer={
           <div className="flex items-center justify-between gap-3">
@@ -172,10 +379,10 @@ export function HallManager() {
               {duplicate ? 'Slot already blocked' : 'Applies instantly to organiser inspector'}
             </MicroLabel>
             <div className="flex gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              <Button variant="ghost" size="sm" onClick={() => setBlackoutOpen(false)}>
                 Cancel
               </Button>
-              <Button size="sm" onClick={submit} disabled={duplicate}>
+              <Button size="sm" onClick={submitBlackout} disabled={duplicate}>
                 Confirm block
               </Button>
             </div>
@@ -185,19 +392,19 @@ export function HallManager() {
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Hall">
-              <Select value={form.hallId} onChange={set('hallId')}>
+              <Select value={blackoutForm.hallId} onChange={setB('hallId')}>
                 {halls.map((h) => (
                   <option key={h.id} value={h.id}>
-                    {h.code} — {h.name}
+                    {h.code} — {h.hallName || h.name}
                   </option>
                 ))}
               </Select>
             </Field>
             <Field label="Date">
-              <Input type="date" min={today} value={form.date} onChange={set('date')} />
+              <Input type="date" min={today} value={blackoutForm.date} onChange={setB('date')} />
             </Field>
             <Field label="Slot">
-              <Select value={form.slotId} onChange={set('slotId')}>
+              <Select value={blackoutForm.slotId} onChange={setB('slotId')}>
                 {slots.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.label} · {s.startTime}–{s.endTime}
@@ -206,7 +413,7 @@ export function HallManager() {
               </Select>
             </Field>
             <Field label="Reason">
-              <Select value={form.reason} onChange={set('reason')}>
+              <Select value={blackoutForm.reason} onChange={setB('reason')}>
                 {BLACKOUT_REASONS.map((r) => (
                   <option key={r} value={r}>
                     {r}
@@ -217,16 +424,126 @@ export function HallManager() {
           </div>
           <Field label="Internal note" hint="Visible to organisers as blackout detail.">
             <Textarea
-              value={form.note}
-              onChange={set('note')}
+              value={blackoutForm.note}
+              onChange={setB('note')}
               placeholder="e.g. Rigging inspection and truss load test"
             />
           </Field>
         </div>
       </Modal>
+
+      {/* ─── Create Hall modal ────────────────────────────────────────────── */}
+      <Modal
+        open={createOpen}
+        onClose={() => { setCreateOpen(false); setCreateError('') }}
+        title="Create new hall"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => { setCreateOpen(false); setCreateError('') }}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={submitCreate} disabled={createLoading}>
+              {createLoading ? 'Creating…' : 'Create hall'}
+            </Button>
+          </div>
+        }
+      >
+        <HallForm
+          form={createForm}
+          set={setC}
+          error={createError}
+        />
+      </Modal>
+
+      {/* ─── Edit Hall modal ──────────────────────────────────────────────── */}
+      <Modal
+        open={Boolean(editTarget)}
+        onClose={() => { setEditTarget(null); setEditError('') }}
+        title={`Edit ${editTarget?.code || 'hall'}`}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => { setEditTarget(null); setEditError('') }}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={submitEdit} disabled={editLoading}>
+              {editLoading ? 'Saving…' : 'Save changes'}
+            </Button>
+          </div>
+        }
+      >
+        <HallForm
+          form={editForm}
+          set={setE}
+          error={editError}
+        />
+      </Modal>
     </div>
   )
 }
+
+/* ─── Shared hall form ──────────────────────────────────────────────────────── */
+
+function HallForm({ form, set, error }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field label="Hall code" hint="e.g. HALL D">
+          <Input
+            value={form.code}
+            onChange={set('code')}
+            placeholder="HALL D"
+          />
+        </Field>
+        <Field label="Hall name">
+          <Input
+            value={form.name}
+            onChange={set('name')}
+            placeholder="e.g. North Wing Theatre"
+          />
+        </Field>
+        <Field label="Floor">
+          <Input
+            value={form.floor}
+            onChange={set('floor')}
+            placeholder="e.g. Level 4"
+          />
+        </Field>
+        <Field label="Entrance gate">
+          <Input
+            value={form.entranceGate}
+            onChange={set('entranceGate')}
+            placeholder="e.g. Entrance Gate 4"
+          />
+        </Field>
+        <Field label="Seating capacity">
+          <Input
+            type="number"
+            min="1"
+            value={form.capacity}
+            onChange={set('capacity')}
+            placeholder="e.g. 300"
+          />
+        </Field>
+        <Field label="Rental fee (₹)">
+          <Input
+            type="number"
+            min="0"
+            value={form.rentalFee}
+            onChange={set('rentalFee')}
+            placeholder="e.g. 75000"
+          />
+        </Field>
+      </div>
+      {error && (
+        <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/* ─── Meta cell ─────────────────────────────────────────────────────────────── */
 
 function Meta({ icon: Icon, label, value }) {
   return (

@@ -1,4 +1,5 @@
 import { Analytics } from '@vercel/analytics/next'
+import Providers from "./providers";
 import { Space_Grotesk, IBM_Plex_Mono } from 'next/font/google'
 import './globals.css'
 
@@ -39,7 +40,9 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className="bg-background">
       <body className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} bg-background antialiased`}>
+        <Providers>
         {children}
+        </Providers>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
