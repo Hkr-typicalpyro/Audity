@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { useAudity } from '@/context/audity-context'
+import { LoadingScreen } from '@/components/audity/loading-screen'
+import { LandingPage } from '@/components/audity/landing-page'
 import { Navbar, ComplexBanner } from '@/components/audity/navbar'
 import { ToastStack } from '@/components/audity/toast-stack'
 import { AttendeeDashboard } from '@/components/attendee/attendee-dashboard'
@@ -65,26 +65,7 @@ function OwnerDashboard() {
 }
 
 function DashboardRouter() {
-  const { authUser, authLoading, role } = useAudity()
-  const router = useRouter()
-
-  useEffect(() => {
-    if (!authLoading && !authUser) {
-      router.replace('/login')
-    }
-  }, [authLoading, authUser, router])
-
-  if (authLoading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-          Initialising Audity…
-        </p>
-      </div>
-    )
-  }
-
-  if (!authUser) return null
+  const { role } = useAudity()
 
   return (
     <>
@@ -96,6 +77,16 @@ function DashboardRouter() {
 }
 
 export default function Home() {
+  const { authUser, authLoading, authError, retryInit } = useAudity()
+
+  if (authLoading || authError) {
+    return <LoadingScreen error={authError} onRetry={retryInit} />
+  }
+
+  if (!authUser) {
+    return <LandingPage />
+  }
+
   return (
     <>
       <Navbar />

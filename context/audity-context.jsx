@@ -45,6 +45,7 @@ export function AudityProvider({ children }) {
   const [authUser, setAuthUser] = useState(null)
   const [token, setToken] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [authError, setAuthError] = useState(false)
 
   // Role is DERIVED — never settable by the client
   const role = authUser?.role ?? null
@@ -93,25 +94,37 @@ export function AudityProvider({ children }) {
 
   // ─── Restore session on mount ───────────────────────────────────────────────
 
-  useEffect(() => {
+  const initAuth = useCallback(() => {
     const storedToken = localStorage.getItem(TOKEN_KEY)
     if (!storedToken) {
       setAuthLoading(false)
+      setAuthError(false)
       return
     }
+
+    setAuthLoading(true)
+    setAuthError(false)
 
     getMe(storedToken)
       .then((data) => {
         setToken(storedToken)
         setAuthUser(data.user)
-      })
-      .catch(() => {
-        localStorage.removeItem(TOKEN_KEY)
-      })
-      .finally(() => {
         setAuthLoading(false)
       })
+      .catch((err) => {
+        if (err.status === 401 || err.status === 403 || err.message === 'Not authorized' || err.message === 'Invalid token') {
+          localStorage.removeItem(TOKEN_KEY)
+          setAuthLoading(false)
+        } else {
+          setAuthError(true)
+          setAuthLoading(false)
+        }
+      })
   }, [])
+
+  useEffect(() => {
+    initAuth()
+  }, [initAuth])
 
   // ─── Halls: loaded exclusively from MongoDB after authentication ────────────
 
@@ -604,6 +617,8 @@ export function AudityProvider({ children }) {
     // Auth
     authUser,
     authLoading,
+    authError,
+    retryInit: initAuth,
     token,
     login,
     register,
