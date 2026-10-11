@@ -1,4 +1,4 @@
-'use client'
+/*'use client'
 
 import { Ticket, ClipboardList, Zap } from 'lucide-react'
 import { useAudity } from '@/context/audity-context'
