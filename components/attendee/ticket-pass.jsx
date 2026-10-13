@@ -49,8 +49,8 @@ export function TicketPass({ ticket, event }) {
             <Row label="Hall" value={`${event.hallCode} — ${event.hallName}`} />
             <Row label="Building floor" value={event.floor} />
             <Row label="Entrance gate" value={event.entranceGate} />
-            <Row label="Date" value={formatDate(event.date)} />
-            <Row label="Time" value={`${event.startTime} – ${event.endTime}`} />
+            <Row label="Date" value={event.fromDate && event.toDate && event.fromDate !== event.toDate ? `${formatDate(event.fromDate)} – ${formatDate(event.toDate)}` : formatDate(event.fromDate || event.date)} />
+            <Row label="Time" value={event.bookingType === 'full-day' ? 'Full day' : `${event.startTime} – ${event.endTime}`} />
             <Row label="Amount paid" value={ticket.amount === 0 ? 'FREE' : formatINR(ticket.amount)} />
             <Row label="Attendee" value={ticket.attendeeName} />
             <Row label="Booking status" value={ticket.status} />

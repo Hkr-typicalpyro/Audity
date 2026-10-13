@@ -30,7 +30,7 @@ export function EventCard({ event, onBook, salesLocked }) {
       {/* header strip */}
       <div className="flex items-center justify-between gap-2 border-b border-border bg-surface-2 px-4 py-2.5">
         <Pill tone={CATEGORY_TONE[event.category] || 'neutral'}>{event.category}</Pill>
-        <MicroLabel>{formatDate(event.date)}</MicroLabel>
+        <MicroLabel>{event.fromDate && event.toDate && event.fromDate !== event.toDate ? `${formatDate(event.fromDate)} – ${formatDate(event.toDate)}` : formatDate(event.fromDate || event.date)}</MicroLabel>
       </div>
 
       <div className="flex flex-1 flex-col p-4">
@@ -72,7 +72,7 @@ export function EventCard({ event, onBook, salesLocked }) {
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <Meta icon={Clock} label="Time" value={`${event.startTime} – ${event.endTime}`} />
+          <Meta icon={Clock} label="Time" value={event.bookingType === 'full-day' ? 'Full day' : `${event.startTime} – ${event.endTime}`} />
           <Meta icon={Users} label="Capacity" value={`${event.maxCapacity}`} />
         </div>
 

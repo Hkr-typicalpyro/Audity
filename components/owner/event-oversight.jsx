@@ -116,11 +116,13 @@ export function EventOversight() {
                       <td className="px-4 py-3 font-mono text-[11px] uppercase tracking-[0.12em] text-foreground">
                         {e.hallCode}
                         <span className="block text-muted-foreground">
-                          {e.startTime}–{e.endTime}
+                          {e.bookingType === 'full-day' ? 'Full day' : `${e.startTime}–${e.endTime}`}
                         </span>
                       </td>
                       <td className="px-4 py-3 font-mono text-[11px] tracking-[0.12em] text-muted-foreground">
-                        {formatDate(e.date)}
+                        {e.fromDate && e.toDate && e.fromDate !== e.toDate
+                          ? `${formatDate(e.fromDate)} – ${formatDate(e.toDate)}`
+                          : formatDate(e.fromDate || e.date)}
                       </td>
                       <td className="px-4 py-3 font-mono text-[11px] tabular-nums text-foreground">
                         {e.registeredCount}/{e.maxCapacity}

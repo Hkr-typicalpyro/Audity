@@ -160,8 +160,8 @@ export function BookingDrawer({ event, open, onClose }) {
                 <Sum label="Hall" value={`${live.hallCode} — ${live.hallName}`} />
                 <Sum label="Floor" value={live.floor} />
                 <Sum label="Gate" value={live.entranceGate} />
-                <Sum label="Date" value={formatDate(live.date)} />
-                <Sum label="Time" value={`${live.startTime} – ${live.endTime}`} />
+                <Sum label="Date" value={live.fromDate && live.toDate && live.fromDate !== live.toDate ? `${formatDate(live.fromDate)} – ${formatDate(live.toDate)}` : formatDate(live.fromDate || live.date)} />
+                <Sum label="Time" value={live.bookingType === 'full-day' ? 'Full day' : `${live.startTime} – ${live.endTime}`} />
                 <Sum
                   label="Ticket price"
                   value={live.ticketPrice === 0 ? 'FREE' : formatINR(live.ticketPrice)}

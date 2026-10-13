@@ -21,13 +21,19 @@ const blackoutSchema = new mongoose.Schema(
       match: [/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD format'],
     },
 
+    fromDate: {
+      type: String,
+      match: [/^\d{4}-\d{2}-\d{2}$/, 'From date must be YYYY-MM-DD format'],
+    },
+
+    toDate: {
+      type: String,
+      match: [/^\d{4}-\d{2}-\d{2}$/, 'To date must be YYYY-MM-DD format'],
+    },
+
     slotId: {
       type: String,
-      required: [true, 'Slot ID is required'],
-      enum: {
-        values: ['morning', 'afternoon', 'evening'],
-        message: 'slotId must be one of: morning, afternoon, evening',
-      },
+      default: 'custom',
     },
 
     startTime: {
@@ -65,8 +71,18 @@ const blackoutSchema = new mongoose.Schema(
   }
 )
 
+blackoutSchema.pre('validate', function () {
+  if (!this.fromDate && this.date) {
+    this.fromDate = this.date
+  }
+  if (!this.toDate) {
+    this.toDate = this.fromDate || this.date
+  }
+})
+
 // Index for availability checking
 blackoutSchema.index({ hall: 1, date: 1, slotId: 1 })
+blackoutSchema.index({ hall: 1, fromDate: 1, toDate: 1 })
 
 blackoutSchema.set('toJSON', {
   virtuals: true,

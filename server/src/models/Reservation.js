@@ -16,29 +16,43 @@ const reservationSchema = new mongoose.Schema(
       trim: true,
     },
 
-    date: {
+    bookingType: {
+      type: String,
+      enum: {
+        values: ['timed', 'full-day'],
+        message: 'bookingType must be timed or full-day',
+      },
+      default: 'timed',
+    },
+
+    fromDate: {
       type: String, // YYYY-MM-DD
-      required: [true, 'Date is required'],
+      match: [/^\d{4}-\d{2}-\d{2}$/, 'From date must be YYYY-MM-DD format'],
+    },
+
+    toDate: {
+      type: String, // YYYY-MM-DD
+      match: [/^\d{4}-\d{2}-\d{2}$/, 'To date must be YYYY-MM-DD format'],
+    },
+
+    date: {
+      type: String, // YYYY-MM-DD (legacy / mirror of fromDate)
       match: [/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD format'],
     },
 
     slotId: {
       type: String,
-      required: [true, 'Slot ID is required'],
-      enum: {
-        values: ['morning', 'afternoon', 'evening'],
-        message: 'slotId must be one of: morning, afternoon, evening',
-      },
+      default: 'custom',
     },
 
     startTime: {
       type: String,
-      required: [true, 'Start time is required'],
+      default: '08:00',
     },
 
     endTime: {
       type: String,
-      required: [true, 'End time is required'],
+      default: '22:00',
     },
 
     // Linked event (when reservation is created alongside an event)
@@ -82,7 +96,26 @@ const reservationSchema = new mongoose.Schema(
   }
 )
 
+// Pre-validate hook to ensure compatibility across fromDate/toDate and legacy date
+reservationSchema.pre('validate', function () {
+  if (!this.fromDate && this.date) {
+    this.fromDate = this.date
+  }
+  if (!this.toDate) {
+    this.toDate = this.fromDate || this.date
+  }
+  if (!this.date && this.fromDate) {
+    this.date = this.fromDate
+  }
+  if (this.bookingType === 'full-day') {
+    if (!this.startTime) this.startTime = '08:00'
+    if (!this.endTime) this.endTime = '22:00'
+    if (!this.slotId) this.slotId = 'full-day'
+  }
+})
+
 // Indexes for fast conflict checking and querying
+reservationSchema.index({ hall: 1, fromDate: 1, toDate: 1, status: 1 })
 reservationSchema.index({ hall: 1, date: 1, slotId: 1, status: 1 })
 reservationSchema.index({ organiser: 1, status: 1 })
 reservationSchema.index({ event: 1 })

@@ -2,6 +2,14 @@ import Blackout from '../models/Blackout.js'
 import Hall from '../models/Hall.js'
 import Reservation from '../models/Reservation.js'
 import User from '../models/User.js'
+import {
+  getLocalTodayString,
+  isValidDateString,
+  checkHallConflict,
+  withHallLock,
+  PRESET_SLOTS,
+  HALL_OPERATIONAL_HOURS,
+} from '../utils/conflictService.js'
 
 function transformBlackout(blk) {
   const obj = blk.toJSON ? blk.toJSON() : blk
@@ -11,6 +19,8 @@ function transformBlackout(blk) {
     hallId: obj.hall?._id ? obj.hall._id.toString() : obj.hall?.toString(),
     hallCode: obj.hallCode || '',
     date: obj.date,
+    fromDate: obj.fromDate || obj.date,
+    toDate: obj.toDate || obj.date,
     slotId: obj.slotId,
     startTime: obj.startTime || '',
     endTime: obj.endTime || '',
@@ -49,47 +59,74 @@ export const createBlackout = async (req, res) => {
       return res.status(400).json({ success: false, message: 'hallId, date, and slotId are required' })
     }
 
+    if (!isValidDateString(date)) {
+      return res.status(400).json({ success: false, message: 'date must be a valid date in YYYY-MM-DD format' })
+    }
+
+    const today = getLocalTodayString()
+    if (date < today) {
+      return res.status(400).json({ success: false, message: 'Cannot create blackout in the past' })
+    }
+
     const hall = await Hall.findById(hallId)
     if (!hall) {
       return res.status(404).json({ success: false, message: 'Hall not found' })
     }
 
-    // Safe conflict policy: reject blackout if hall is already confirmed reserved for this slot
-    const existingReservation = await Reservation.findOne({ hall: hall._id, date, slotId, status: 'CONFIRMED' })
-    if (existingReservation) {
-      return res.status(409).json({
-        success: false,
-        message: 'Cannot create blackout: Hall is already reserved for a confirmed event during this date and time slot',
+    const slot = PRESET_SLOTS[slotId] || {
+      startTime: req.body.startTime || HALL_OPERATIONAL_HOURS.startTime,
+      endTime: req.body.endTime || HALL_OPERATIONAL_HOURS.endTime,
+    }
+
+    const result = await withHallLock(hall._id, async () => {
+      // Check if duplicate blackout already exists
+      const existingBlackout = await Blackout.findOne({ hall: hall._id, date, slotId })
+      if (existingBlackout) {
+        return { conflict: true, status: 409, message: 'Blackout already exists for this hall, date, and slot' }
+      }
+
+      // Check conflict against any active confirmed reservation (single-day, multi-day, full-day, timed)
+      const conflictCheck = await checkHallConflict({
+        hallId: hall._id,
+        fromDate: date,
+        toDate: date,
+        bookingType: slotId === 'full-day' ? 'full-day' : 'timed',
+        startTime: slot.startTime,
+        endTime: slot.endTime,
       })
-    }
 
-    const existingBlackout = await Blackout.findOne({ hall: hall._id, date, slotId })
-    if (existingBlackout) {
-      return res.status(409).json({ success: false, message: 'Blackout already exists for this hall, date, and slot' })
-    }
+      if (conflictCheck.hasConflict && conflictCheck.conflictType === 'RESERVATION') {
+        return {
+          conflict: true,
+          status: 409,
+          message: 'Cannot create blackout: Hall is already reserved for a confirmed event during this date and time slot',
+        }
+      }
 
-    const SLOTS = {
-      morning:   { startTime: '09:00', endTime: '12:00' },
-      afternoon: { startTime: '13:00', endTime: '16:00' },
-      evening:   { startTime: '17:00', endTime: '20:00' },
-    }
-    const slot = SLOTS[slotId] || { startTime: '', endTime: '' }
+      const blackout = await Blackout.create({
+        hall: hall._id,
+        hallCode: hall.code,
+        date,
+        fromDate: date,
+        toDate: date,
+        slotId,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        reason: (reason || 'MAINTENANCE').trim(),
+        note: (note || '').trim(),
+        createdBy: req.user.id,
+      })
 
-    const blackout = await Blackout.create({
-      hall: hall._id,
-      hallCode: hall.code,
-      date,
-      slotId,
-      startTime: slot.startTime,
-      endTime: slot.endTime,
-      reason: (reason || 'MAINTENANCE').trim(),
-      note: (note || '').trim(),
-      createdBy: req.user.id,
+      return { conflict: false, blackout: transformBlackout(blackout) }
     })
+
+    if (result.conflict) {
+      return res.status(result.status).json({ success: false, message: result.message })
+    }
 
     res.status(201).json({
       success: true,
-      blackout: transformBlackout(blackout),
+      blackout: result.blackout,
     })
   } catch (error) {
     res.status(400).json({ success: false, message: error.message || 'Failed to create blackout' })

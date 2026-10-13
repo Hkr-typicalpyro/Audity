@@ -52,6 +52,7 @@ export function HallManager() {
     halls,
     slots,
     blackouts,
+    reservations,
     addBlackout,
     removeBlackout,
     hallStatus,
@@ -275,7 +276,7 @@ export function HallManager() {
                 <MicroLabel>Next in hall</MicroLabel>
                 <p className="mt-1.5 text-xs leading-relaxed text-foreground">
                   {s.nextEvent
-                    ? `${s.nextEvent.title} — ${formatDate(s.nextEvent.date)} · ${s.nextEvent.startTime}`
+                    ? `${s.nextEvent.title} — ${formatDate(s.nextEvent.fromDate || s.nextEvent.date)} · ${s.nextEvent.bookingType === 'full-day' ? 'Full day' : s.nextEvent.startTime}`
                     : s.blackout
                       ? `Blocked ${formatDate(s.blackout.date)} — ${s.blackout.reason}`
                       : 'No scheduled activity. Hall open for rental.'}
@@ -364,6 +365,58 @@ export function HallManager() {
                 </li>
               )
             })}
+          </ul>
+        )}
+      </Panel>
+
+      {/* ─── Hall Reservations register ──────────────────────────────────── */}
+      <Panel
+        label="Confirmed hall reservations"
+        dense
+      >
+        {reservations.filter((r) => r.status === 'CONFIRMED').length === 0 ? (
+          <div className="p-4">
+            <EmptyState
+              icon={Layers}
+              title="No active reservations"
+              description="Confirmed hall reservations made by organisers will appear here."
+            />
+          </div>
+        ) : (
+          <ul>
+            {reservations
+              .filter((r) => r.status === 'CONFIRMED')
+              .map((r) => {
+                const hall = halls.find((h) => h.id === r.hallId)
+                const isFullDay = r.bookingType === 'full-day'
+                const isMultiDay = r.fromDate && r.toDate && r.fromDate !== r.toDate
+                return (
+                  <li
+                    key={r.id || r._id}
+                    className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3 last:border-b-0"
+                  >
+                    <div className="min-w-[150px]">
+                      <MicroLabel className="text-foreground">{hall?.code || r.hallName}</MicroLabel>
+                      <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                        {isMultiDay
+                          ? `${formatDate(r.fromDate)} – ${formatDate(r.toDate)}`
+                          : formatDate(r.fromDate || r.date)}
+                      </p>
+                    </div>
+                    {isFullDay ? (
+                      <Pill tone="primary" dot>Full day</Pill>
+                    ) : (
+                      <Pill tone="neutral">{r.startTime}–{r.endTime}</Pill>
+                    )}
+                    <span className="font-mono text-xs text-muted-foreground">
+                      Organiser: <span className="text-foreground">{r.organiser || r.organiserName}</span>
+                    </span>
+                    <span className="ml-auto font-mono text-xs text-primary">
+                      {formatINR(r.amount)}
+                    </span>
+                  </li>
+                )
+              })}
           </ul>
         )}
       </Panel>

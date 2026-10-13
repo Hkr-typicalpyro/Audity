@@ -54,7 +54,7 @@ export function MyTickets() {
                   {event?.title || 'EVENT REMOVED'}
                 </h3>
                 <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
-                  <Cell label="Date" value={formatDate(event?.date)} />
+                  <Cell label="Date" value={event?.fromDate && event?.toDate && event?.fromDate !== event?.toDate ? `${formatDate(event.fromDate)} – ${formatDate(event.toDate)}` : formatDate(event?.fromDate || event?.date)} />
                   <Cell label="Hall" value={event ? `${event.hallCode} · ${event.floor}` : '—'} />
                   <Cell label="Quantity" value={`${t.quantity} seat(s)`} />
                   <Cell label="Booked" value={formatDateTime(t.bookedAt)} />

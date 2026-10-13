@@ -7,14 +7,23 @@ import Blackout from '../models/Blackout.js'
 import Ticket from '../models/Ticket.js'
 import Payment from '../models/Payment.js'
 import PlatformSettings from '../models/PlatformSettings.js'
+import {
+  validateBookingInput,
+  checkHallConflict,
+  withHallLock,
+  countDays,
+  PRESET_SLOTS,
+  HALL_OPERATIONAL_HOURS,
+} from '../utils/conflictService.js'
 
 /**
- * Transform a Mongoose Event document into the flat shape the frontend expects.
- * Provides hallId (as string of hall._id), hallCode, hallName, floor,
- * entranceGate and organiser (display name string) alongside all core fields.
+ * Transform a Mongoose Event document into the shape the frontend expects.
  */
 function transformEvent(event) {
   const obj = event.toJSON ? event.toJSON() : event
+  const fromDate = obj.fromDate || obj.date
+  const toDate = obj.toDate || fromDate
+  const bookingType = obj.bookingType || 'timed'
 
   return {
     id: obj._id.toString(),
@@ -22,23 +31,23 @@ function transformEvent(event) {
     title: obj.title,
     description: obj.description,
     category: obj.category,
-    // hallId uses the actual MongoDB Hall _id string so frontend hall filters work
     hallId: obj.hall?._id ? obj.hall._id.toString() : obj.hall?.toString(),
     hallCode: obj.hallCode,
     hallName: obj.hallName,
     floor: obj.floor,
     entranceGate: obj.entranceGate,
-    date: obj.date,
+    bookingType,
+    fromDate,
+    toDate,
+    date: fromDate, // mirror for backwards compatibility
     startTime: obj.startTime,
     endTime: obj.endTime,
     slotId: obj.slotId,
     maxCapacity: obj.maxCapacity,
     registeredCount: obj.registeredCount,
     ticketPrice: obj.ticketPrice,
-    // organiser is the display name string (never the ObjectId or User document)
     organiser: obj.organiserName,
     organiserName: obj.organiserName,
-    // organiser ObjectId reference (only present when created via API)
     organiserId: obj.organiser ? obj.organiser.toString() : null,
     status: obj.status,
     cancellationReason: obj.cancellationReason,
@@ -49,12 +58,19 @@ function transformEvent(event) {
 
 function transformReservation(res) {
   const obj = res.toJSON ? res.toJSON() : res
+  const fromDate = obj.fromDate || obj.date
+  const toDate = obj.toDate || fromDate
+  const bookingType = obj.bookingType || 'timed'
+
   return {
     id: obj._id.toString(),
     _id: obj._id.toString(),
     hallId: obj.hall?._id ? obj.hall._id.toString() : obj.hall?.toString(),
     hallName: obj.hallName,
-    date: obj.date,
+    bookingType,
+    fromDate,
+    toDate,
+    date: fromDate,
     slotId: obj.slotId,
     startTime: obj.startTime,
     endTime: obj.endTime,
@@ -90,7 +106,7 @@ function transformPayment(p) {
 export const getEvents = async (req, res) => {
   try {
     const events = await Event.find()
-      .sort({ date: 1, startTime: 1 })
+      .sort({ fromDate: 1, startTime: 1 })
       .lean()
 
     res.status(200).json({
@@ -150,15 +166,45 @@ export const createEvent = async (req, res) => {
       method,
     } = req.body
 
-    // Validate required fields
-    if (!title || !description || !category || !hallId || !date || !slotId) {
+    const fromDate = req.body.fromDate || date
+    const toDate = req.body.toDate || fromDate
+    const bookingType = req.body.bookingType || (slotId === 'full-day' ? 'full-day' : 'timed')
+
+    let startTime = req.body.startTime
+    let endTime = req.body.endTime
+
+    if (bookingType === 'full-day') {
+      startTime = HALL_OPERATIONAL_HOURS.startTime
+      endTime = HALL_OPERATIONAL_HOURS.endTime
+    } else if (slotId && PRESET_SLOTS[slotId] && (!startTime || !endTime)) {
+      startTime = PRESET_SLOTS[slotId].startTime
+      endTime = PRESET_SLOTS[slotId].endTime
+    }
+
+    // 1. Validate required event fields
+    if (!title || !description || !category || !hallId) {
       return res.status(400).json({
         success: false,
-        message: 'title, description, category, hallId, date, slotId are required',
+        message: 'title, description, category, hallId are required',
       })
     }
 
-    // Validate hall exists and is active
+    // 2. Validate dates and time range
+    const validation = validateBookingInput({
+      fromDate,
+      toDate,
+      bookingType,
+      startTime,
+      endTime,
+    })
+    if (!validation.valid) {
+      return res.status(validation.status).json({
+        success: false,
+        message: validation.message,
+      })
+    }
+
+    // 3. Validate hall exists and is active
     const hall = await Hall.findById(hallId)
     if (!hall) {
       return res.status(404).json({
@@ -173,7 +219,7 @@ export const createEvent = async (req, res) => {
       })
     }
 
-    // Validate capacity
+    // 4. Validate capacity
     const capacity = Number(maxCapacity)
     if (!capacity || capacity < 1) {
       return res.status(400).json({
@@ -188,43 +234,7 @@ export const createEvent = async (req, res) => {
       })
     }
 
-    // Resolve time slot
-    const SLOTS = {
-      morning:   { startTime: '09:00', endTime: '12:00' },
-      afternoon: { startTime: '13:00', endTime: '16:00' },
-      evening:   { startTime: '17:00', endTime: '20:00' },
-    }
-    const slot = SLOTS[slotId]
-    if (!slot) {
-      return res.status(400).json({
-        success: false,
-        message: 'slotId must be one of: morning, afternoon, evening',
-      })
-    }
-
-    // Check Blackout conflicts (server-side validation)
-    const blackout = await Blackout.findOne({ hall: hall._id, date, slotId })
-    if (blackout) {
-      return res.status(409).json({
-        success: false,
-        message: 'Hall is blacked out for this date and time slot',
-      })
-    }
-
-    // Check Reservation conflicts (server-side start/end overlap validation)
-    const existingReservations = await Reservation.find({ hall: hall._id, date, status: 'CONFIRMED' })
-    const hasOverlap = existingReservations.some((r) => {
-      if (r.slotId === slotId) return true
-      return slot.startTime < r.endTime && slot.endTime > r.startTime
-    })
-    if (hasOverlap) {
-      return res.status(409).json({
-        success: false,
-        message: 'Hall is already reserved for this date and time slot',
-      })
-    }
-
-    // Load the authenticated organiser — identity comes from JWT, never from body
+    // 5. Load authenticated organiser from JWT
     const organiserUser = await User.findById(req.user.id).select('name')
     if (!organiserUser) {
       return res.status(401).json({
@@ -233,89 +243,131 @@ export const createEvent = async (req, res) => {
       })
     }
 
-    // Perform atomic transaction: Event + Reservation + Hall Rental Payment
-    let session = null
-    try {
-      session = await mongoose.startSession()
-      session.startTransaction()
-    } catch (err) {
-      session = null // fallback if standalone server without transactions
-    }
-    const opts = session ? { session } : {}
+    // 6. Concurrency-safe conflict check and atomic creation
+    const daysCount = countDays(fromDate, toDate)
+    const rentalAmount = hall.rentalFee * daysCount
 
-    try {
-      const [event] = await Event.create([
-        {
-          title: title.trim(),
-          description: description.trim(),
-          category,
-          hall: hall._id,
-          hallCode: hall.code,
-          hallName: hall.name,
-          floor: hall.floor,
-          entranceGate: hall.entranceGate,
-          date,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          slotId,
-          maxCapacity: Math.min(capacity, hall.capacity),
-          registeredCount: 0,
-          ticketPrice: Number(ticketPrice) || 0,
-          organiser: organiserUser._id,
-          organiserName: organiserUser.name,
-          status: 'PUBLISHED',
-          cancellationReason: null,
-        },
-      ], opts)
-
-      const [reservation] = await Reservation.create([
-        {
-          hall: hall._id,
-          hallName: hall.name,
-          date,
-          slotId,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          event: event._id,
-          organiser: organiserUser._id,
-          organiserName: organiserUser.name,
-          amount: hall.rentalFee, // authoritative from Hall document
-          status: 'CONFIRMED',
-        },
-      ], opts)
-
-      const paymentId = `pay-r-${Date.now().toString(36)}-${Math.floor(1000 + Math.random() * 8999)}`
-      const [payment] = await Payment.create([
-        {
-          customId: paymentId,
-          type: 'HALL_RENTAL',
-          user: organiserUser._id,
-          event: event._id,
-          refId: reservation._id.toString(),
-          amount: hall.rentalFee,
-          method: method || 'NETBANKING',
-          status: 'PAID',
-        },
-      ], opts)
-
-      if (session) {
-        await session.commitTransaction()
-        session.endSession()
-      }
-
-      res.status(201).json({
-        success: true,
-        event: transformEvent(event),
-        reservation: transformReservation(reservation),
-        payment: transformPayment(payment),
+    const result = await withHallLock(hall._id, async () => {
+      // Check conflict
+      const conflictCheck = await checkHallConflict({
+        hallId: hall._id,
+        fromDate,
+        toDate,
+        bookingType,
+        startTime,
+        endTime,
       })
-    } catch (err) {
-      if (session) {
-        await session.abortTransaction()
-        session.endSession()
+      if (conflictCheck.hasConflict) {
+        return {
+          conflict: true,
+          status: conflictCheck.status,
+          message: conflictCheck.message,
+        }
       }
-      throw err
+
+      let session = null
+      try {
+        session = await mongoose.startSession()
+        session.startTransaction()
+      } catch (err) {
+        session = null
+      }
+      const opts = session ? { session } : {}
+
+      try {
+        const [event] = await Event.create([
+          {
+            title: title.trim(),
+            description: description.trim(),
+            category,
+            hall: hall._id,
+            hallCode: hall.code,
+            hallName: hall.name,
+            floor: hall.floor,
+            entranceGate: hall.entranceGate,
+            bookingType,
+            fromDate,
+            toDate,
+            date: fromDate,
+            startTime,
+            endTime,
+            slotId: bookingType === 'full-day' ? 'full-day' : (slotId || 'custom'),
+            maxCapacity: Math.min(capacity, hall.capacity),
+            registeredCount: 0,
+            ticketPrice: Number(ticketPrice) || 0,
+            organiser: organiserUser._id,
+            organiserName: organiserUser.name,
+            status: 'PUBLISHED',
+            cancellationReason: null,
+          },
+        ], opts)
+
+        const [reservation] = await Reservation.create([
+          {
+            hall: hall._id,
+            hallName: hall.name,
+            bookingType,
+            fromDate,
+            toDate,
+            date: fromDate,
+            slotId: bookingType === 'full-day' ? 'full-day' : (slotId || 'custom'),
+            startTime,
+            endTime,
+            event: event._id,
+            organiser: organiserUser._id,
+            organiserName: organiserUser.name,
+            amount: rentalAmount,
+            status: 'CONFIRMED',
+          },
+        ], opts)
+
+        const paymentId = `pay-r-${Date.now().toString(36)}-${Math.floor(1000 + Math.random() * 8999)}`
+        const [payment] = await Payment.create([
+          {
+            customId: paymentId,
+            type: 'HALL_RENTAL',
+            user: organiserUser._id,
+            event: event._id,
+            refId: reservation._id.toString(),
+            amount: rentalAmount,
+            method: method || 'NETBANKING',
+            status: 'PAID',
+          },
+        ], opts)
+
+        if (session) {
+          await session.commitTransaction()
+          session.endSession()
+        }
+
+        return {
+          conflict: false,
+          event: transformEvent(event),
+          reservation: transformReservation(reservation),
+          payment: transformPayment(payment),
+        }
+      } catch (err) {
+        if (session) {
+          await session.abortTransaction()
+          session.endSession()
+        }
+        throw err
+      }
+    })
+
+    if (result.conflict) {
+      return res.status(result.status).json({
+        success: false,
+        message: result.message,
+      })
     }
+
+    res.status(201).json({
+      success: true,
+      event: result.event,
+      reservation: result.reservation,
+      payment: result.payment,
+    })
   } catch (error) {
     res.status(400).json({
       success: false,

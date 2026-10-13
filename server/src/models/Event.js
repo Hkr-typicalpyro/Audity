@@ -31,35 +31,46 @@ const eventSchema = new mongoose.Schema(
     },
 
     // Denormalized hall fields for display (populated from hall at creation)
-    // These avoid the need to always populate the hall relation in list views.
     hallCode: { type: String, required: true },
     hallName: { type: String, required: true },
     floor:    { type: String, required: true },
     entranceGate: { type: String, required: true },
 
+    bookingType: {
+      type: String,
+      enum: {
+        values: ['timed', 'full-day'],
+        message: 'bookingType must be timed or full-day',
+      },
+      default: 'timed',
+    },
+
+    fromDate: {
+      type: String, // stored as YYYY-MM-DD
+    },
+
+    toDate: {
+      type: String, // stored as YYYY-MM-DD
+    },
+
     date: {
       type: String, // stored as YYYY-MM-DD string (matches frontend expectation)
-      required: [true, 'Date is required'],
       match: [/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD format'],
     },
 
     startTime: {
       type: String,
-      required: [true, 'Start time is required'],
+      default: '08:00',
     },
 
     endTime: {
       type: String,
-      required: [true, 'End time is required'],
+      default: '22:00',
     },
 
     slotId: {
       type: String,
-      required: [true, 'Slot ID is required'],
-      enum: {
-        values: ['morning', 'afternoon', 'evening'],
-        message: 'slotId must be one of: morning, afternoon, evening',
-      },
+      default: 'custom',
     },
 
     maxCapacity: {
@@ -81,7 +92,6 @@ const eventSchema = new mongoose.Schema(
     },
 
     // Organiser — authenticated User ObjectId for events created through the API.
-    // May be null for seeded legacy data that has no corresponding user.
     organiser: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -89,8 +99,6 @@ const eventSchema = new mongoose.Schema(
     },
 
     // Denormalized organiser display name — always stored for display.
-    // For API-created events this is populated from the authenticated user.
-    // For seeded data it preserves the original mock organiser name.
     organiserName: {
       type: String,
       required: [true, 'Organiser name is required'],
@@ -116,6 +124,24 @@ const eventSchema = new mongoose.Schema(
     timestamps: true,
   }
 )
+
+// Pre-validate hook to ensure compatibility across fromDate/toDate and legacy date
+eventSchema.pre('validate', function () {
+  if (!this.fromDate && this.date) {
+    this.fromDate = this.date
+  }
+  if (!this.toDate) {
+    this.toDate = this.fromDate || this.date
+  }
+  if (!this.date && this.fromDate) {
+    this.date = this.fromDate
+  }
+  if (this.bookingType === 'full-day') {
+    if (!this.startTime) this.startTime = '08:00'
+    if (!this.endTime) this.endTime = '22:00'
+    if (!this.slotId) this.slotId = 'full-day'
+  }
+})
 
 // Virtual: expose _id as id for frontend compatibility
 eventSchema.set('toJSON', {

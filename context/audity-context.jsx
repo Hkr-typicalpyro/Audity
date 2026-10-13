@@ -22,6 +22,7 @@ import {
   cancelTicketApi as apiCancelTicket,
   checkInTicketApi as apiCheckInTicket,
   getReservations as apiGetReservations,
+  createReservationApi as apiCreateReservation,
   getBlackouts as apiGetBlackouts,
   createBlackout as apiCreateBlackout,
   deleteBlackout as apiDeleteBlackout,
@@ -29,6 +30,12 @@ import {
   getPlatformSettings as apiGetPlatformSettings,
   updatePlatformSettings as apiUpdatePlatformSettings,
 } from '@/lib/api'
+import {
+  getLocalTodayString,
+  getDatesInRange,
+  isTimeIntervalOverlap,
+  HALL_OPERATIONAL_HOURS,
+} from '@/lib/date-utils'
 
 const AudityContext = createContext(null)
 
@@ -362,55 +369,161 @@ export function AudityProvider({ children }) {
   /* ─── ORGANISER: Hall Booking & Check-in ──────────────────────────────────── */
 
   const inspectSlot = useCallback(
-    ({ hallId, date, slotId }) => {
-      if (!hallId || !date || !slotId) {
+    ({ hallId, fromDate, toDate, date, bookingType = 'timed', startTime, endTime, slotId }) => {
+      const fDate = fromDate || date
+      const tDate = toDate || fDate
+      if (!hallId || !fDate) {
         return { state: 'IDLE', reason: null, detail: null }
       }
-      const blackout = blackouts.find(
-        (b) => b.hallId === hallId && b.date === date && b.slotId === slotId,
-      )
-      if (blackout) {
+
+      const todayStr = getLocalTodayString()
+      if (fDate < todayStr) {
         return {
-          state: 'OCCUPIED',
-          reason: blackout.reason === 'MAINTENANCE' ? 'MAINTENANCE' : `OWNER BLACKOUT`,
-          detail: `${blackout.reason}${blackout.note ? ` — ${blackout.note}` : ''}`,
+          state: 'PAST_DATE',
+          reason: 'DATE IN THE PAST',
+          detail: 'Reservations cannot start in the past. Choose today or a future date.',
         }
       }
-      const reservation = reservations.find(
-        (r) =>
-          r.hallId === hallId &&
-          r.date === date &&
-          r.slotId === slotId &&
-          r.status === 'CONFIRMED',
-      )
-      const bookedEvt = events.find(
-        (e) => e.hallId === hallId && e.date === date && e.slotId === slotId && e.status === 'PUBLISHED',
-      )
-      if (bookedEvt || reservation) {
-        const evt = bookedEvt || events.find((e) => e.id === reservation.eventId)
-        if (!evt || evt.status !== 'CANCELLED') {
-          return {
-            state: 'OCCUPIED',
-            reason: 'BOOKED EVENT',
-            detail: evt
-              ? `${evt.title} — ${evt.organiser}`
-              : `Reserved by ${reservation?.organiser || 'Organiser'}`,
+      if (tDate < fDate) {
+        return {
+          state: 'INVALID_RANGE',
+          reason: 'INVALID DATE RANGE',
+          detail: 'To Date cannot be earlier than From Date.',
+        }
+      }
+
+      const type = bookingType || (slotId === 'full-day' ? 'full-day' : 'timed')
+      let sTime = startTime
+      let eTime = endTime
+
+      if (type === 'full-day') {
+        sTime = HALL_OPERATIONAL_HOURS.startTime
+        eTime = HALL_OPERATIONAL_HOURS.endTime
+      } else if (slotId && (!sTime || !eTime)) {
+        const foundSlot = TIME_SLOTS.find((s) => s.id === slotId)
+        if (foundSlot) {
+          sTime = foundSlot.startTime
+          eTime = foundSlot.endTime
+        }
+      }
+
+      if (type === 'timed') {
+        if (!sTime || !eTime) {
+          return { state: 'INVALID_TIME', reason: 'TIME REQUIRED', detail: 'Please select both start and end times.' }
+        }
+        if (sTime >= eTime) {
+          return { state: 'INVALID_TIME', reason: 'INVALID TIME RANGE', detail: 'End time must be later than start time.' }
+        }
+      }
+
+      const datesToInspect = getDatesInRange(fDate, tDate)
+
+      // 1. Check Owner Blackouts
+      for (const blk of blackouts) {
+        if (blk.hallId === hallId || blk.hall === hallId) {
+          const blkDates = blk.fromDate && blk.toDate
+            ? getDatesInRange(blk.fromDate, blk.toDate)
+            : [blk.date]
+
+          for (const d of datesToInspect) {
+            if (blkDates.includes(d)) {
+              const blkSlot = TIME_SLOTS.find((s) => s.id === blk.slotId)
+              const blkStart = blk.startTime || blkSlot?.startTime || HALL_OPERATIONAL_HOURS.startTime
+              const blkEnd = blk.endTime || blkSlot?.endTime || HALL_OPERATIONAL_HOURS.endTime
+              const isFullDayBlk = !blk.slotId || blk.slotId === 'all-day' || blk.slotId === 'full-day'
+
+              if (type === 'full-day' || isFullDayBlk || isTimeIntervalOverlap(sTime, eTime, blkStart, blkEnd)) {
+                return {
+                  state: 'OCCUPIED',
+                  reason: blk.reason === 'MAINTENANCE' ? 'MAINTENANCE' : 'OWNER BLACKOUT',
+                  detail: `Hall is blacked out on ${d}: ${blk.reason}${blk.note ? ` — ${blk.note}` : ''}`,
+                }
+              }
+            }
           }
         }
       }
+
+      // 2. Check Confirmed Reservations
+      for (const res of reservations) {
+        if ((res.hallId === hallId || res.hall === hallId) && res.status === 'CONFIRMED') {
+          const rFrom = res.fromDate || res.date
+          const rTo = res.toDate || rFrom
+          const rDates = getDatesInRange(rFrom, rTo)
+          const rType = res.bookingType || 'timed'
+          const rSlot = TIME_SLOTS.find((s) => s.id === res.slotId)
+          const rStart = res.startTime || rSlot?.startTime || HALL_OPERATIONAL_HOURS.startTime
+          const rEnd = res.endTime || rSlot?.endTime || HALL_OPERATIONAL_HOURS.endTime
+
+          for (const d of datesToInspect) {
+            if (rDates.includes(d)) {
+              if (type === 'full-day' || rType === 'full-day' || isTimeIntervalOverlap(sTime, eTime, rStart, rEnd)) {
+                return {
+                  state: 'OCCUPIED',
+                  reason: 'BOOKED RESERVATION',
+                  detail: `Reserved on ${d} by ${res.organiser || res.organiserName || 'Organiser'}${rType === 'full-day' ? ' (Full day)' : ` (${rStart}–${rEnd})`}`,
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 3. Check Published Events
+      for (const evt of events) {
+        if ((evt.hallId === hallId || evt.hall === hallId) && evt.status === 'PUBLISHED') {
+          const eFrom = evt.fromDate || evt.date
+          const eTo = evt.toDate || eFrom
+          const eDates = getDatesInRange(eFrom, eTo)
+          const eType = evt.bookingType || 'timed'
+          const eSlot = TIME_SLOTS.find((s) => s.id === evt.slotId)
+          const eStart = evt.startTime || eSlot?.startTime || HALL_OPERATIONAL_HOURS.startTime
+          const eEnd = evt.endTime || eSlot?.endTime || HALL_OPERATIONAL_HOURS.endTime
+
+          for (const d of datesToInspect) {
+            if (eDates.includes(d)) {
+              if (type === 'full-day' || eType === 'full-day' || isTimeIntervalOverlap(sTime, eTime, eStart, eEnd)) {
+                return {
+                  state: 'OCCUPIED',
+                  reason: 'BOOKED EVENT',
+                  detail: `Booked on ${d} for "${evt.title}" (${evt.organiser || evt.organiserName || 'Organiser'})`,
+                }
+              }
+            }
+          }
+        }
+      }
+
       return { state: 'AVAILABLE', reason: null, detail: null }
     },
-    [blackouts, reservations, events],
+    [blackouts, reservations, events]
   )
 
   /**
    * rentHallAndPublish — atomitcally persists Event, Reservation, and Hall Rental Payment to MongoDB.
    */
   const rentHallAndPublish = useCallback(
-    async ({ hallId, date, slotId, title, description, category, ticketPrice, capacity, method, total }) => {
+    async ({
+      hallId,
+      fromDate,
+      toDate,
+      date,
+      bookingType = 'timed',
+      startTime,
+      endTime,
+      slotId,
+      title,
+      description,
+      category,
+      ticketPrice,
+      capacity,
+      method,
+    }) => {
       const hall = halls.find((h) => h.id === hallId || h._id === hallId)
-      const slot = TIME_SLOTS.find((s) => s.id === slotId)
-      if (!hall || !slot) return null
+      if (!hall) return null
+
+      const fDate = fromDate || date
+      const tDate = toDate || fDate
 
       try {
         const data = await apiCreateEvent(token, {
@@ -418,7 +531,12 @@ export function AudityProvider({ children }) {
           description: description.trim(),
           category,
           hallId: hall._id || hall.id,
-          date,
+          fromDate: fDate,
+          toDate: tDate,
+          date: fDate,
+          bookingType,
+          startTime,
+          endTime,
           slotId,
           ticketPrice: Number(ticketPrice) || 0,
           maxCapacity: capacity,
@@ -446,6 +564,25 @@ export function AudityProvider({ children }) {
       }
     },
     [halls, token, role, reloadReservations, reloadPayments, pushToast],
+  )
+
+  const createReservation = useCallback(
+    async (payload) => {
+      if (!token) return null
+      try {
+        const data = await apiCreateReservation(token, payload)
+        if (data.reservation) {
+          setReservations((prev) => [data.reservation, ...prev])
+          await reloadReservations(token, role)
+        }
+        pushToast('HALL RESERVATION CONFIRMED')
+        return data.reservation
+      } catch (err) {
+        pushToast(`RESERVATION FAILED: ${err.message}`, 'error')
+        throw err
+      }
+    },
+    [token, role, reloadReservations, pushToast]
   )
 
   const checkInTicket = useCallback(
@@ -661,6 +798,7 @@ export function AudityProvider({ children }) {
     cancelTicket,
     inspectSlot,
     rentHallAndPublish,
+    createReservation,
     checkInTicket,
     addBlackout,
     removeBlackout,

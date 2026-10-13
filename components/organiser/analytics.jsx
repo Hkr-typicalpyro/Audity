@@ -67,7 +67,7 @@ export function OrganiserAnalytics() {
                       {e.title}
                     </p>
                     <MicroLabel className="mt-1 block">
-                      {e.hallCode} · {formatDate(e.date)} · {e.startTime}
+                      {e.hallCode} · {e.fromDate && e.toDate && e.fromDate !== e.toDate ? `${formatDate(e.fromDate)} – ${formatDate(e.toDate)}` : formatDate(e.fromDate || e.date)} · {e.bookingType === 'full-day' ? 'FULL DAY' : e.startTime}
                       {e.status === 'CANCELLED' ? ' · CANCELLED' : ''}
                     </MicroLabel>
                   </div>
