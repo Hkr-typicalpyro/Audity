@@ -20,12 +20,12 @@ export function LoadingScreen({ error = false, onRetry }) {
           Audity
         </h1>
         <MicroLabel className="block">
-          {error 
-            ? 'Connection Error' 
-            : slowInit 
-              ? 'Waking up services…' 
-              : 'Initialising Audity…'}
-        </MicroLabel>
+  {error
+    ? 'The server ghosted us 👻'
+    : slowInit
+      ? 'Render is stretching its legs…'
+      : 'Waking up the auditorium crew…'}
+</MicroLabel>
       </div>
 
       {error ? (

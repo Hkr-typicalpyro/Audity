@@ -41,7 +41,6 @@ export function Navbar() {
     { id: 'n2', label: 'TICKETING', text: `${myTickets.length} registration(s) linked to your profile.` },
     { id: 'n3', label: 'BUILDING OPS', text: 'Level 2 rigging inspection scheduled this week.' },
   ]
-
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
       <div className="mx-auto flex max-w-[1600px] flex-col gap-3 px-4 py-3 lg:px-6">
